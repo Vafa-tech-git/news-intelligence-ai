@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ticker Signals - News Intelligence AI</title>
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+    {% set active_tab = 'tickers' %}
+    {% include 'components/nav.html' %}
+
+        <div class="dashboard-header">
+            <div>
+                <h2 class="dashboard-title">Ticker Signals</h2>
+                <p class="dashboard-subtitle">Aggregated signals by stock ticker</p>
+            </div>
+        </div>
+
+        <div class="ticker-grid">
+            {% if tickers %}
+                {% for ticker in tickers %}
+                <div class="ticker-card {{ ticker.composite_signal }}">
+                    <div class="ticker-header">
+                        <span class="ticker-symbol">{{ ticker.ticker }}</span>
+                        <span class="ticker-count">{{ ticker.count }} articles</span>
+                    </div>
+
+                    <div class="ticker-signal">
+                        <div class="signal-indicator {{ ticker.composite_signal }}">
+                            {% if ticker.composite_signal == 'bullish' %}
+                                <svg class="direction-arrow up" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M7 14l5-5 5 5H7z"/>
+                                </svg>
+                            {% elif ticker.composite_signal == 'bearish' %}
+                                <svg class="direction-arrow down" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M7 10l5 5 5-5H7z"/>
+                                </svg>
+                            {% else %}
+                                <svg class="direction-arrow" viewBox="0 0 24 24" fill="currentColor">
+                                    <circle cx="12" cy="12" r="3"/>
+                                </svg>
+                            {% endif %}
+                            <span>{{ ticker.composite_signal }}</span>
+                        </div>
+                    </div>
+
+                    <div class="ticker-stats">
+                        <div class="stat">
+                            <span class="stat-value bullish">{{ ticker.bullish }}</span>
+                            <span class="stat-label">Bullish</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-value bearish">{{ ticker.bearish }}</span>
+                            <span class="stat-label">Bearish</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-value neutral">{{ ticker.neutral }}</span>
+                            <span class="stat-label">Neutral</span>
+                        </div>
+                    </div>
+
+                    <div class="ticker-meta">
+                        <span>Avg Confidence: {{ (ticker.avg_confidence * 100)|int }}%</span>
+                        <span>Max Impact: {{ ticker.max_impact }}</span>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="empty-state">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
+                    </svg>
+                    <h3>No ticker data yet</h3>
+                    <p>Scan news articles to extract ticker signals</p>
+                </div>
+            {% endif %}
+        </div>
+    </main>
+
+</body>
+</html>
