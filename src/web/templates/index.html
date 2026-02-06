@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI news intelligence</title>
+
+    <script src="https://cdn.tailwindcss.com"></script> 
+    
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+
+    <style>
+        /* Animație pentru indicatorul de încărcare */
+        .htmx-indicator{ display:none; }
+        .htmx-request .htmx-indicator{ display:inline-block; }
+        .htmx-request.htmx-indicator{ display:inline-block; }
+        
+        /* Sub-tab styling */
+        .sub-tab { transition: all 0.3s ease; }
+        .sub-tab.active { border-bottom: 2px solid #3B82F6; color: #60A5FA; }
+        .sub-tab:not(.active) { color: #9CA3AF; }
+        .sub-tab:not(.active):hover { color: #F3F4F6; }
+        
+        /* Filter panel */
+        .filter-panel { transition: all 0.3s ease; }
+        .filter-hidden { display: none; }
+        .filter-visible { display: block; }
+        
+        /* Filter dropdown */
+        .filter-dropdown { transition: all 0.2s ease; }
+        .filter-dropdown.filter-hidden { 
+            display: none; 
+            opacity: 0;
+            transform: translateY(-10px);
+        }
+        .filter-dropdown.filter-visible { 
+            display: block; 
+            opacity: 1;
+            transform: translateY(0);
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 font-sans min-h-screen">
+
+    <nav class="bg-gray-800 border-b border-gray-700 p-4 sticky top-0 z-50">
+        <div class="container mx-auto flex justify-between items-center">
+            <div class="flex items-center space-x-2">
+                <div class="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+                <h1 class="text-xl font-bold tracking-tight">
+                    News<span class="text-blue-500">intelligence</span> AI
+                </h1>
+            </div>
+            <div class="text-xs text-gray-500">
+                Powered by Ollama (gpt-oss:120b)
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mx-auto max-w-4xl p-6">
+
+        <div id="main-tabs" class="flex space-x-6 mb-6 border-b border-gray-700 pb-2">
+            <a href="/" class="text-lg font-bold pb-2 transition 
+               {% if not showing_saved %} text-blue-400 border-b-2 border-blue-400 
+               {% else %} text-gray-400 hover:text-white {% endif %}">
+               📰 Știri
+            </a>
+
+            <a href="/saved" class="text-lg font-bold pb-2 transition 
+               {% if showing_saved %} text-yellow-400 border-b-2 border-yellow-400 
+               {% else %} text-gray-400 hover:text-white {% endif %}">
+               🔖 Salvate
+            </a>
+        </div>
+
+        <!-- Sub-tabs for Știri (only show on main page) -->
+        {% if not showing_saved %}
+        <div class="flex justify-between items-center mb-6 border-b border-gray-600 pb-2">
+            <div id="sub-tabs" class="flex space-x-4">
+                <button onclick="switchTab('all')" 
+                        id="tab-all" 
+                        class="sub-tab active text-sm font-semibold pb-2 transition">
+                    📰 Toate știrile
+                </button>
+                <button onclick="switchTab('international')" 
+                        id="tab-international" 
+                        class="sub-tab text-sm font-semibold pb-2 transition">
+                    🌍 Știri externe
+                </button>
+                <button onclick="switchTab('romania')" 
+                        id="tab-romania" 
+                        class="sub-tab text-sm font-semibold pb-2 transition">
+                    🇷🇴 Știri romania
+                </button>
+            </div>
+            
+            <div class="relative">
+                <button onclick="toggleFilterDropdown()" 
+                        class="bg-gray-700 hover:bg-gray-600 text-white font-medium py-2 px-4 rounded-lg transition flex items-center">
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                    </svg>
+                    Filtre avansate
+                </button>
+                
+                <!-- Filter Dropdown -->
+                <div id="filter-dropdown" class="filter-dropdown filter-hidden absolute right-0 mt-2 w-80 bg-gray-800 border border-gray-600 rounded-lg shadow-lg z-50">
+                    <div class="p-4 space-y-4">
+                        <!-- Impact Score Filter -->
+                        <div>
+                            <label class="block text-sm font-medium mb-2">Impact score</label>
+                            <div class="flex items-center space-x-2">
+                                <input type="range" id="impact-min" min="1" max="10" value="1" 
+                                       class="flex-1" onchange="applyFilters()">
+                                <span id="impact-min-label" class="text-sm">1</span>
+                                <span class="text-gray-500">-</span>
+                                <input type="range" id="impact-max" min="1" max="10" value="10" 
+                                       class="flex-1" onchange="applyFilters()">
+                                <span id="impact-max-label" class="text-sm">10</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Recommendation Filter -->
+                        <div>
+                            <label class="block text-sm font-medium mb-2">Recomandare</label>
+                            <select id="recommendation-filter" onchange="applyFilters()" 
+                                    class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                                <option value="">Toate</option>
+                                <option value="strong_buy">Cumpărat puternic 🟢🟢</option>
+                                <option value="buy">Cumpărat 🟢</option>
+                                <option value="hold">Hold 🟡</option>
+                                <option value="sell">Vândut 🔴</option>
+                                <option value="strong_sell">Vândut puternic 🔴🔴</option>
+                            </select>
+                        </div>
+                        
+                        <!-- Sorting Options -->
+                        <div>
+                            <label class="block text-sm font-medium mb-2">Sortare</label>
+                            <div class="flex space-x-2">
+                                <button onclick="setSorting('impact')" id="sort-impact" 
+                                        class="flex-1 bg-blue-600 text-white px-3 py-2 rounded text-sm transition">
+                                    Impact
+                                </button>
+                                <button onclick="setSorting('date')" id="sort-date" 
+                                        class="flex-1 bg-gray-600 text-white px-3 py-2 rounded text-sm transition">
+                                    Dată
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Active Filters Display -->
+        {% if not showing_saved %}
+        <div id="active-filters" class="mb-4 flex flex-wrap gap-2">
+            <!-- Active filter pills will be inserted here -->
+        </div>
+        {% endif %}
+
+        <div class="flex justify-between items-center mb-8 bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700">
+            <div>
+            <h2 class="text-2xl font-bold text-white">Dashboard analiză</h2>
+            <p class="text-gray-400 text-sm mt-1">Monitorizează piețele în timp real folosind AI.</p>
+        </div>
+
+        <div class="flex space-x-4">
+             
+        {% if not showing_saved %}
+
+            <form method="POST" action="/reset-db" class="contents">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <button type="submit"
+                        hx-post="/reset-db" 
+                        hx-target="#news-feed" 
+                        hx-swap="innerHTML"
+                        hx-confirm="⚠️ Ești sigur că vrei să cureți feed-ul? (Știrile din tab-ul 'Salvate' VOR FI PĂSTRATE)?"
+                        class="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg transition flex items-center shadow-lg hover:shadow-red-500/30 ring-1 ring-red-500/50">
+                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                    </svg>
+                    Reset
+                </button>
+            </form>
+
+
+            <form method="POST" action="/scan-news" class="contents">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <input type="hidden" name="category" id="scan-category" value=""/>
+                <button type="submit"
+                        onclick="setScanCategory()"
+                        hx-post="/scan-news" 
+                        hx-target="#news-feed" 
+                        hx-swap="innerHTML" 
+                        hx-indicator="#spinner"
+                        class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg transition flex items-center shadow-lg hover:shadow-blue-500/30">
+                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                    </svg>
+                    <span id="scan-button-text">Scanează acum</span>
+                </button>
+            </form>
+
+        {% else %}
+            
+            <div class="flex items-center text-gray-400 text-sm italic border border-gray-700 p-3 rounded bg-gray-800/50 w-full justify-center">
+                <span>Nu poți scana aici. Mergi la </span>
+                
+                <a href="/" class="ml-1 text-blue-400 font-bold hover:text-blue-300 hover:underline flex items-center transition">
+                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
+                    Știri
+                </a>
+            </div>
+
+        {% endif %}
+
+        </div>
+    </div>
+
+        <div id="spinner" class="htmx-indicator flex justify-center items-center py-8 mb-4 bg-gray-800/50 rounded-lg border border-blue-500/30 border-dashed">
+            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mr-3"></div>
+            <span class="text-blue-400 font-mono text-sm">
+                Se colectează date & rulează modelul 120b... (Poate dura 10-20 sec)
+            </span>
+        </div>
+
+        <div id="news-feed" class="grid grid-cols-1 gap-6 pb-20">
+        
+        {% if news_list %}
+            {% for news in news_list %}
+                {% include 'news_card.html' %}
+            {% endfor %}
+        {% endif %}
+        
+        </div>
+    </div>
+
+    <script>
+        let currentCategory = 'all';
+        let currentSort = 'impact';
+        let isScanning = false;
+        let filters = {
+            impactMin: 1,
+            impactMax: 10,
+            recommendation: '',
+            category: 'all'
+        };
+
+        function switchTab(category) {
+            // Prevent tab switching during scanning
+            if (isScanning) {
+                showScanWarning();
+                return;
+            }
+            
+            currentCategory = category;
+            filters.category = category;
+            
+            // Update tab styling
+            document.querySelectorAll('.sub-tab').forEach(tab => tab.classList.remove('active'));
+            document.getElementById(`tab-${category}`).classList.add('active');
+            
+            // Update scan button text
+            updateScanButtonText();
+            
+            // Apply filters
+            applyFilters();
+        }
+
+        function toggleFilterPanel() {
+            const dropdown = document.getElementById('filter-dropdown');
+            dropdown.classList.toggle('filter-hidden');
+            dropdown.classList.toggle('filter-visible');
+        }
+
+        function toggleFilterDropdown() {
+            const dropdown = document.getElementById('filter-dropdown');
+            dropdown.classList.toggle('filter-hidden');
+            dropdown.classList.toggle('filter-visible');
+        }
+
+        function setSorting(sortType) {
+            currentSort = sortType;
+            
+            // Update button styling
+            document.getElementById('sort-impact').className = sortType === 'impact' 
+                ? 'flex-1 bg-blue-600 text-white px-3 py-2 rounded text-sm transition'
+                : 'flex-1 bg-gray-600 text-white px-3 py-2 rounded text-sm transition';
+            
+            document.getElementById('sort-date').className = sortType === 'date'
+                ? 'flex-1 bg-blue-600 text-white px-3 py-2 rounded text-sm transition'
+                : 'flex-1 bg-gray-600 text-white px-3 py-2 rounded text-sm transition';
+            
+            applyFilters();
+        }
+
+        function updateImpactLabels() {
+            document.getElementById('impact-min-label').textContent = document.getElementById('impact-min').value;
+            document.getElementById('impact-max-label').textContent = document.getElementById('impact-max').value;
+        }
+
+        function showScanWarning() {
+            // Create or update warning message
+            let warning = document.getElementById('scan-warning');
+            if (!warning) {
+                warning = document.createElement('div');
+                warning.id = 'scan-warning';
+                warning.className = 'fixed top-20 left-1/2 transform -translate-x-1/2 bg-yellow-600 text-white px-4 py-2 rounded-lg shadow-lg z-50 transition-opacity duration-300';
+                warning.innerHTML = `
+                    <div class="flex items-center">
+                        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                        </svg>
+                        <span>Te rugăm așteaptă finalizarea scanării pentru a schimba tabul!</span>
+                    </div>
+                `;
+                document.body.appendChild(warning);
+            }
+            
+            // Show warning with fade-in
+            warning.style.opacity = '0';
+            warning.style.display = 'block';
+            setTimeout(() => {
+                warning.style.opacity = '1';
+            }, 10);
+            
+            // Auto-hide after 3 seconds
+            setTimeout(() => {
+                warning.style.opacity = '0';
+                setTimeout(() => {
+                    if (warning.parentNode) {
+                        warning.parentNode.removeChild(warning);
+                    }
+                }, 300);
+            }, 3000);
+        }
+
+        function setScanCategory() {
+            // Set the current category as scan target
+            document.getElementById('scan-category').value = currentCategory;
+        }
+
+        function updateScanButtonText() {
+            const scanButtonText = document.getElementById('scan-button-text');
+            if (!scanButtonText) return;
+            
+            let categoryText = '';
+            switch(currentCategory) {
+                case 'romania':
+                    categoryText = '🇷🇴 Romania';
+                    break;
+                case 'international':
+                    categoryText = '🌍 Externe';
+                    break;
+                case 'all':
+                default:
+                    categoryText = 'Toate';
+                    break;
+            }
+            
+            scanButtonText.textContent = `Scanează ${categoryText}`;
+        }
+
+        function applyFilters() {
+            // Update filter values
+            filters.impactMin = parseInt(document.getElementById('impact-min').value);
+            filters.impactMax = parseInt(document.getElementById('impact-max').value);
+            filters.recommendation = document.getElementById('recommendation-filter').value;
+            
+            updateImpactLabels();
+            
+            // Filter news items
+            const newsCards = document.querySelectorAll('#news-feed .news-card');
+            let visibleCount = 0;
+            
+            newsCards.forEach(card => {
+                const newsData = JSON.parse(card.dataset.news || '{}');
+                
+                // Apply category filter (except for 'all')
+                if (currentCategory !== 'all' && newsData.category !== currentCategory) {
+                    card.style.display = 'none';
+                    return;
+                }
+                
+                // Apply impact score filter
+                const impact = parseInt(newsData.impact_score) || 0;
+                if (impact < filters.impactMin || impact > filters.impactMax) {
+                    card.style.display = 'none';
+                    return;
+                }
+                
+                // Apply recommendation filter
+                if (filters.recommendation && newsData.recommendation !== filters.recommendation) {
+                    card.style.display = 'none';
+                    return;
+                }
+                
+                card.style.display = 'block';
+                visibleCount++;
+            });
+            
+            // Sort visible items
+            sortNewsItems();
+            
+            // Update active filters display
+            updateActiveFiltersDisplay();
+            
+            // Hide no results message always
+            hideNoResultsMessage();
+        }
+
+        function sortNewsItems() {
+            const container = document.getElementById('news-feed');
+            const cards = Array.from(container.querySelectorAll('.news-card')).filter(card => card.style.display !== 'none');
+            
+            cards.sort((a, b) => {
+                const aData = JSON.parse(a.dataset.news || '{}');
+                const bData = JSON.parse(b.dataset.news || '{}');
+                
+                if (currentSort === 'impact') {
+                    return (parseInt(bData.impact_score) || 0) - (parseInt(aData.impact_score) || 0);
+                } else {
+                    return new Date(bData.published_at || 0) - new Date(aData.published_at || 0);
+                }
+            });
+            
+            // Re-append sorted cards
+            cards.forEach(card => container.appendChild(card));
+        }
+
+        function updateActiveFiltersDisplay() {
+            const container = document.getElementById('active-filters');
+            const pills = [];
+            
+            if (filters.impactMin > 1 || filters.impactMax < 10) {
+                pills.push(`<span class="bg-blue-600 text-white px-2 py-1 rounded-full text-xs">Impact: ${filters.impactMin}-${filters.impactMax}</span>`);
+            }
+            
+            if (filters.recommendation) {
+                let recommendationText = '';
+                switch(filters.recommendation) {
+                    case 'strong_buy':
+                        recommendationText = '🟢🟢 CUMPĂRAT PUTERNIC';
+                        break;
+                    case 'buy':
+                        recommendationText = '🟢 CUMPĂRAT';
+                        break;
+                    case 'hold':
+                        recommendationText = '🟡 HOLD';
+                        break;
+                    case 'sell':
+                        recommendationText = '🔴 VÂNDUT';
+                        break;
+                    case 'strong_sell':
+                        recommendationText = '🔴🔴 VÂNDUT PUTERNIC';
+                        break;
+                    default:
+                        recommendationText = filters.recommendation
+                            .replace(/_/g, ' ')
+                            .replace(/\b\w/g, l => l.toUpperCase());
+                }
+                pills.push(`<span class="bg-green-600 text-white px-2 py-1 rounded-full text-xs">${recommendationText}</span>`);
+            }
+            
+            if (currentCategory === 'romania') {
+                pills.push(`<span class="bg-yellow-600 text-white px-2 py-1 rounded-full text-xs">🇷🇴 Romania</span>`);
+            }
+            if (currentCategory === 'international') {
+                pills.push(`<span class="bg-blue-600 text-white px-2 py-1 rounded-full text-xs">🌍 Externe</span>`);
+            }
+            
+            container.innerHTML = pills.join(' ');
+        }
+
+        function hideNoResultsMessage() {
+            const message = document.getElementById('no-results');
+            if (message) {
+                message.remove();
+            }
+        }
+
+        // Initialize impact label updates
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('impact-min').addEventListener('input', updateImpactLabels);
+            document.getElementById('impact-max').addEventListener('input', updateImpactLabels);
+            updateImpactLabels();
+            
+            // Initialize scan button text
+            updateScanButtonText();
+            
+            // Close dropdown when clicking outside
+            document.addEventListener('click', function(event) {
+                const dropdown = document.getElementById('filter-dropdown');
+                const button = event.target.closest('button');
+                
+                if (dropdown && !dropdown.contains(event.target) && 
+                    (!button || !button.onclick || !button.onclick.toString().includes('toggleFilterDropdown'))) {
+                    dropdown.classList.add('filter-hidden');
+                    dropdown.classList.remove('filter-visible');
+                }
+            });
+        });
+
+        // Original HTMX event handlers
+        document.body.addEventListener('htmx:beforeRequest', function(evt) {
+            if (evt.detail.target.id === 'news-feed') {
+                isScanning = true;
+                
+                // Disable main tabs
+                const tabs = document.getElementById('main-tabs');
+                tabs.classList.add('pointer-events-none', 'opacity-50');
+                
+                // Disable sub-tabs
+                const subTabs = document.getElementById('sub-tabs');
+                if (subTabs) {
+                    subTabs.classList.add('pointer-events-none', 'opacity-50');
+                }
+                
+                // Disable filter dropdown button
+                const filterButton = document.querySelector('[onclick="toggleFilterDropdown()"]');
+                if (filterButton) {
+                    filterButton.disabled = true;
+                    filterButton.classList.add('opacity-50', 'cursor-not-allowed');
+                }
+            }
+        });
+
+        document.body.addEventListener('htmx:afterOnLoad', function(evt) {
+            if (evt.detail.target.id === 'news-feed') {
+                isScanning = false;
+                
+                // Re-enable main tabs
+                const tabs = document.getElementById('main-tabs');
+                tabs.classList.remove('pointer-events-none', 'opacity-50');
+                
+                // Re-enable sub-tabs
+                const subTabs = document.getElementById('sub-tabs');
+                if (subTabs) {
+                    subTabs.classList.remove('pointer-events-none', 'opacity-50');
+                }
+                
+                // Re-enable filter dropdown button
+                const filterButton = document.querySelector('[onclick="toggleFilterDropdown()"]');
+                if (filterButton) {
+                    filterButton.disabled = false;
+                    filterButton.classList.remove('opacity-50', 'cursor-not-allowed');
+                }
+                
+                // Apply current filters to newly loaded content
+                setTimeout(() => {
+                    applyFilters();
+                }, 100);
+            }
+        });
+
+    </script>
+
+</body>
+</html>
