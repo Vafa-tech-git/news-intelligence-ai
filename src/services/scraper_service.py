@@ -3,6 +3,22 @@ from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
 import time
 import random
+import hashlib
+import logging
+
+# Import cache manager for web content caching
+try:
+    import sys
+    import os
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from src.utils.cache import cache_web_content, get_cached_web_content
+    cache_enabled = True
+except ImportError:
+    cache_enabled = False
+    logging.warning("Cache manager not available for web scraper")
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 # ==========================================
 # HEADER-E PENTRU DEGHIZARE
@@ -38,14 +54,14 @@ def scrape_with_bs4(url):
             
         return extract_text_from_html(response.text)
     except Exception as e:
-        print(f"   [BS4] Eșec la {url}: {e}")
+        logger.debug(f"   [BS4] Eșec la {url}: {e}")
         return ""
 
 # ==========================================
 # PLANUL B: PLAYWRIGHT (BROWSER REAL)
 # ==========================================
 def scrape_with_playwright(url):
-    print("   [Playwright] Activez browserul...")
+    logger.debug("   [Playwright] Activez browserul...")
     text = ""
     
     try:
@@ -65,16 +81,15 @@ def scrape_with_playwright(url):
             
             # --- ÎNCERCAREA 1: RAPIDĂ (Wait until domcontentloaded) ---
             try:
-                # print("      ➡️ Încercare rapidă...")
                 page.goto(url, timeout=20000, wait_until="domcontentloaded")
                 html_content = page.content()
                 text = extract_text_from_html(html_content)
             except Exception as e:
-                print(f"      ⚠️ Rapid a eșuat: {e}")
+                logger.debug(f"      ⚠️ Rapid a eșuat: {e}")
 
             # --- ÎNCERCAREA 2: LENTĂ (Dacă prima a dat text puțin) ---
             if len(text) < 200:
-                print("      ➡️ Text incomplet. Trec la modul 'Heavy' (Scroll + NetworkIdle)...")
+                logger.debug("      ➡️ Text incomplet. Trec la modul 'Heavy' (Scroll + NetworkIdle)...")
                 
                 # Așteptăm să se termine încărcarea rețelei (networkidle)
                 try:
@@ -112,7 +127,7 @@ def scrape_with_playwright(url):
             browser.close()
             
     except Exception as e:
-        print(f"   [Playwright] Eroare critică: {e}")
+        logger.debug(f"   [Playwright] Eroare critică: {e}")
     
     return text
 
@@ -146,13 +161,24 @@ def extract_text_from_html(html_content):
 # FUNCȚIA PRINCIPALĂ (MANAGERUL)
 # ==========================================
 def get_article_content(url):
-    """Aceasta este singura funcție pe care o va apela restul aplicației."""
+    """Aceasta este singura funcție pe care o va apela restul aplicației cu caching."""
+    
+    # Step 0: Check cache first
+    if cache_enabled:
+        cached_content = get_cached_web_content(url)
+        if cached_content and len(cached_content) > 300:
+            logger.debug(f"Cache hit for URL: {url}")
+            return cached_content
+        logger.debug(f"Cache miss for URL: {url}")
     
     # Pasul 1: Încercăm metoda rapidă
     content = scrape_with_bs4(url)
     
     # Verificăm dacă am obținut ceva util (măcar 300 caractere)
     if content and len(content) > 300:
+        # Cache the successful result
+        if cache_enabled:
+            cache_web_content(url, content)
         return content
         
     # Pasul 2: Dacă textul e prea scurt sau gol, încercăm metoda grea (Playwright)
@@ -160,6 +186,9 @@ def get_article_content(url):
     content = scrape_with_playwright(url)
 
     if content and len(content) > 300:
+        # Cache the successful result
+        if cache_enabled:
+            cache_web_content(url, content)
         return content
     
     return content
