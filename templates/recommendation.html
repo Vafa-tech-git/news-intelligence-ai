@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Market Recommendation - News Intelligence AI</title>
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="{{ url_for('static', filename='js/htmx.min.js') }}"></script>
+    <style>
+        .recommendation-hero {
+            background: var(--card-bg);
+            border-radius: 16px;
+            padding: 2.5rem;
+            margin-bottom: 2rem;
+            border: 1px solid var(--border-color);
+            text-align: center;
+        }
+
+        .recommendation-question {
+            font-size: 1.25rem;
+            color: var(--text-secondary);
+            margin-bottom: 1.5rem;
+        }
+
+        .recommendation-badge {
+            display: inline-block;
+            padding: 1rem 2.5rem;
+            border-radius: 12px;
+            font-size: 2.5rem;
+            font-weight: 700;
+            font-family: 'Exo 2', sans-serif;
+            letter-spacing: 0.05em;
+            margin-bottom: 1rem;
+        }
+
+        .recommendation-score {
+            font-size: 4rem;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+            line-height: 1;
+            margin: 1.5rem 0;
+        }
+
+        .recommendation-score.positive { color: #22c55e; }
+        .recommendation-score.neutral { color: #eab308; }
+        .recommendation-score.negative { color: #ef4444; }
+
+        .recommendation-description {
+            font-size: 1.125rem;
+            color: var(--text-secondary);
+            margin-bottom: 2rem;
+        }
+
+        .score-breakdown {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-top: 2rem;
+        }
+
+        .breakdown-card {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 1.5rem;
+            border: 1px solid var(--border-color);
+        }
+
+        .breakdown-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .breakdown-title {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .breakdown-weight {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            background: var(--border-color);
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+        }
+
+        .breakdown-score {
+            font-size: 2rem;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+            margin-bottom: 0.75rem;
+        }
+
+        .breakdown-bar {
+            height: 8px;
+            background: var(--border-color);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 0.5rem;
+        }
+
+        .breakdown-bar-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.5s ease;
+        }
+
+        .breakdown-bar-fill.positive { background: linear-gradient(90deg, #22c55e, #4ade80); }
+        .breakdown-bar-fill.negative { background: linear-gradient(90deg, #ef4444, #f87171); }
+        .breakdown-bar-fill.neutral { background: linear-gradient(90deg, #6b7280, #9ca3af); }
+
+        .breakdown-quality {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+
+        .reasons-section {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-top: 2rem;
+            border: 1px solid var(--border-color);
+        }
+
+        .reasons-title {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: var(--text-primary);
+        }
+
+        .reason-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .reason-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.75rem;
+            padding: 0.75rem;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            font-size: 0.875rem;
+        }
+
+        .reason-icon {
+            flex-shrink: 0;
+            width: 20px;
+            height: 20px;
+        }
+
+        .reason-icon.technical { color: #3b82f6; }
+        .reason-icon.sentiment { color: #a855f7; }
+        .reason-icon.economic { color: #f59e0b; }
+
+        .confidence-section {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-top: 1.5rem;
+            padding: 1rem;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+        }
+
+        .confidence-label {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+        }
+
+        .confidence-badge {
+            padding: 0.375rem 0.75rem;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .confidence-badge.high { background: rgba(34, 197, 94, 0.2); color: #22c55e; }
+        .confidence-badge.medium { background: rgba(234, 179, 8, 0.2); color: #eab308; }
+        .confidence-badge.low { background: rgba(107, 114, 128, 0.2); color: #9ca3af; }
+
+        .ticker-input-section {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            border: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .ticker-input-label {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+        }
+
+        .ticker-input {
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1rem;
+            text-transform: uppercase;
+            width: 120px;
+        }
+
+        .ticker-input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .analyze-btn {
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            background: var(--accent);
+            color: white;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .analyze-btn:hover {
+            background: #2563eb;
+        }
+
+        .market-btn {
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            background: var(--card-bg);
+            color: var(--text-primary);
+            font-weight: 500;
+            border: 1px solid var(--border-color);
+            cursor: pointer;
+            transition: all 0.2s;
+            text-decoration: none;
+        }
+
+        .market-btn:hover {
+            border-color: var(--accent);
+        }
+
+        .market-context-bar {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 1rem 1.5rem;
+            margin-bottom: 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 1rem;
+            border: 1px solid var(--border-color);
+        }
+
+        .context-item { text-align: center; }
+        .context-label { font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase; }
+        .context-value { font-size: 1.25rem; font-weight: 600; }
+        .context-value.fear { color: #ef4444; }
+        .context-value.greed { color: #10b981; }
+        .context-value.neutral { color: #6b7280; }
+
+        .timestamp {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-top: 1rem;
+        }
+    </style>
+</head>
+<body>
+
+    {% set active_tab = 'recommendation' %}
+    {% include 'components/nav.html' %}
+
+    <div class="dashboard-header">
+        <div>
+            <h2 class="dashboard-title">Market Recommendation</h2>
+            <p class="dashboard-subtitle">Statistical analysis: 60% Price/Technical + 20% News Sentiment + 20% Economic</p>
+        </div>
+    </div>
+
+    <!-- Ticker Input Section -->
+    <div class="ticker-input-section">
+        <span class="ticker-input-label">Analyze specific ticker:</span>
+        <form action="/recommendation" method="GET" style="display: flex; gap: 0.5rem; align-items: center;">
+            <input type="text" name="ticker" class="ticker-input" placeholder="AAPL" value="{{ current_ticker or '' }}" maxlength="5">
+            <button type="submit" class="analyze-btn">Analyze</button>
+        </form>
+        {% if current_ticker %}
+        <a href="/recommendation" class="market-btn">View Market Overview</a>
+        {% endif %}
+    </div>
+
+    <!-- Market Context Bar -->
+    {% if market_context %}
+    <div class="market-context-bar">
+        <div class="context-item">
+            <div class="context-label">Market Mood</div>
+            <div class="context-value {% if market_context.mood_score <= 35 %}fear{% elif market_context.mood_score >= 65 %}greed{% else %}neutral{% endif %}">
+                {{ market_context.mood_score|round|int }}/100
+            </div>
+            <div class="context-label">{{ mood_label }}</div>
+        </div>
+        <div class="context-item">
+            <div class="context-label">Regime</div>
+            <div class="context-value">{{ regime_label }}</div>
+        </div>
+        <div class="context-item">
+            <div class="context-label">Volatility</div>
+            <div class="context-value">{{ market_context.volatility_level|round(1) if market_context.volatility_level else 'N/A' }}</div>
+        </div>
+        {% if market_context.economic_health %}
+        <div class="context-item">
+            <div class="context-label">Economy</div>
+            <div class="context-value">{{ market_context.economic_health.overall_score|round|int if market_context.economic_health.overall_score else 'N/A' }}/100</div>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- Main Recommendation Widget -->
+    <div id="recommendation-widget">
+        {% include 'recommendation_widget.html' %}
+    </div>
+
+</main>
+</body>
+</html>

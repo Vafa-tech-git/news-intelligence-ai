@@ -1,11 +1,58 @@
 import json
 import os
 import sys
+import re
 from ollama import Client
 
-# Truc pentru a importa config-ul din folderul părinte
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
+
+GICS_SECTORS = [
+    "Technology", "Healthcare", "Financials", "Consumer Discretionary",
+    "Consumer Staples", "Energy", "Materials", "Industrials",
+    "Utilities", "Real Estate", "Communication Services"
+]
+
+COMMON_TICKERS = {
+    "AAPL", "MSFT", "GOOGL", "GOOG", "AMZN", "META", "NVDA", "TSLA",
+    "JPM", "V", "JNJ", "WMT", "PG", "MA", "UNH", "HD", "DIS", "BAC",
+    "XOM", "CVX", "PFE", "KO", "PEP", "ABBV", "MRK", "TMO", "COST",
+    "AVGO", "CSCO", "ACN", "ORCL", "CRM", "AMD", "INTC", "QCOM",
+    "NFLX", "ADBE", "TXN", "IBM", "PYPL", "NOW", "UBER", "SQ", "SHOP"
+}
+
+def validate_tickers(tickers):
+    """Filter tickers to known symbols or valid format (1-5 uppercase letters)."""
+    if not tickers:
+        return []
+    validated = []
+    for t in tickers:
+        t = t.upper().strip()
+        if t in COMMON_TICKERS:
+            validated.append(t)
+        elif re.match(r'^[A-Z]{1,5}$', t):
+            validated.append(t)
+    return validated
+
+def validate_sector(sector):
+    """Map sector to GICS standard."""
+    if not sector:
+        return None
+    sector_lower = sector.lower()
+    for gics in GICS_SECTORS:
+        if gics.lower() in sector_lower or sector_lower in gics.lower():
+            return gics
+    if "tech" in sector_lower or "software" in sector_lower:
+        return "Technology"
+    if "bank" in sector_lower or "finance" in sector_lower:
+        return "Financials"
+    if "health" in sector_lower or "pharma" in sector_lower or "medical" in sector_lower:
+        return "Healthcare"
+    if "oil" in sector_lower or "gas" in sector_lower:
+        return "Energy"
+    if "retail" in sector_lower:
+        return "Consumer Discretionary"
+    return None
 
 def get_ollama_client():
     """Configurează conexiunea către serverul Cloud."""
@@ -37,54 +84,64 @@ def clean_json_response(response_text):
         return None
 
 def analyze_article(text):
-    """Funcția principală apelată de aplicație."""
-    
-    # 1. Validare simplă: Nu trimitem texte goale sau prea scurte la AI
+    """Main analysis function with quant signal extraction."""
+
     if not text or len(text) < 80:
-        print("   [AI] Textul e prea scurt pentru analiză.")
+        print("   [AI] Text too short for analysis.")
         return None
 
-    # 2. PROMPT ENGINEERING
-    # Aici îi spunem exact ce vrem. Cu cât ești mai clar, cu atât 120b răspunde mai bine.
-    # Limităm textul la primele 6000 caractere ca să nu depășim limitele (și costurile/timpul).
-    prompt = f"""
-    Ești un analist financiar expert. Analizează următorul articol de știri financiare.
-    
-    ARTICOL:
-    {text[:6000]}
-    
-    SARCINĂ:
-    Returnează UN SINGUR obiect JSON valid cu următoarele chei:
-    1. "summary": Un rezumat concis în limba ROMÂNĂ (maxim 2 fraze).
-    2. "impact_score": Un număr întreg de la 1 la 10 (10 = impact critic asupra pieței/bursei).
-    3. "is_important": true dacă scorul este >= 7, altfel false.
-    4. "sentiment": "pozitiv", "negativ" sau "neutru".
+    sectors_list = ", ".join(GICS_SECTORS)
+    prompt = f"""You are an expert financial analyst. Analyze this financial news article.
 
-    IMPORTANT: Nu scrie nimic altceva în afară de JSON. Fără introduceri.
-    """
+ARTICLE:
+{text[:6000]}
+
+TASK:
+Return a single valid JSON object with these keys:
+1. "summary": A concise summary in ROMANIAN (max 2 sentences).
+2. "impact_score": Integer 1-10 (10 = critical market impact).
+3. "is_important": true if score >= 7, else false.
+4. "sentiment": "positive", "negative", or "neutral".
+5. "tickers": Array of stock ticker symbols mentioned (e.g., ["AAPL", "MSFT"]). Empty array if none.
+6. "sector": Primary GICS sector from: {sectors_list}. Use null if unclear.
+7. "direction": Trading signal - "bullish", "bearish", or "neutral".
+8. "confidence": Float 0.0-1.0 indicating confidence in the direction signal.
+9. "catalysts": Array of market catalysts (e.g., ["earnings", "acquisition", "guidance", "regulation", "layoffs"]). Empty array if none.
+
+IMPORTANT: Output ONLY the JSON. No introduction or explanation.
+"""
 
     try:
-        print(f"   [AI] Trimit cererea către {config.OLLAMA_MODEL}...")
+        print(f"   [AI] Sending request to {config.OLLAMA_MODEL}...")
         client = get_ollama_client()
-        
-        # Trimitem comanda
+
         response = client.chat(model=config.OLLAMA_MODEL, messages=[
             {'role': 'user', 'content': prompt},
         ])
-        
-        # Extragem răspunsul brut
+
         raw_content = response['message']['content']
-        
-        # Îl curățăm și îl transformăm în dicționar Python
         data = clean_json_response(raw_content)
-        
+
         if data:
-            print(f"   ✅ Analiză completă! Scor: {data.get('impact_score')}")
+            data['tickers'] = validate_tickers(data.get('tickers', []))
+            data['sector'] = validate_sector(data.get('sector'))
+            if data.get('direction') not in ('bullish', 'bearish', 'neutral'):
+                data['direction'] = 'neutral'
+            conf = data.get('confidence')
+            if conf is None or not isinstance(conf, (int, float)):
+                data['confidence'] = 0.5
+            else:
+                data['confidence'] = max(0.0, min(1.0, float(conf)))
+            if not isinstance(data.get('catalysts'), list):
+                data['catalysts'] = []
+
+            print(f"   ✅ Analysis complete! Score: {data.get('impact_score')}, "
+                  f"Direction: {data.get('direction')}, Tickers: {data.get('tickers')}")
         else:
-            print("   ⚠️ AI-ul a răspuns, dar nu a dat un JSON valid.")
-            
+            print("   ⚠️ AI responded but did not return valid JSON.")
+
         return data
 
     except Exception as e:
-        print(f"❌ Eroare conexiune AI: {e}")
+        print(f"❌ AI connection error: {e}")
         return None

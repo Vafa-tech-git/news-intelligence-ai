@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Market Indices - News Intelligence AI</title>
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="{{ url_for('static', filename='js/htmx.min.js') }}"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+</head>
+<body>
+
+    {% set active_tab = 'markets' %}
+    {% include 'components/nav.html' %}
+
+        <div class="dashboard-header">
+            <div>
+                <h2 class="dashboard-title">Market Indices</h2>
+                <p class="dashboard-subtitle">Historical price data with drawdown highlighting</p>
+            </div>
+            <div class="dashboard-actions">
+                <button hx-post="/refresh-markets?symbol={{ current_symbol }}"
+                        hx-target="#refresh-status"
+                        hx-swap="innerHTML"
+                        hx-indicator="#loading"
+                        class="btn btn-primary">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                    </svg>
+                    Refresh Data
+                </button>
+                <span id="refresh-status"></span>
+            </div>
+        </div>
+
+        <div id="loading" class="loading">
+            <div class="spinner">
+                <div class="spinner-ring"></div>
+                <div class="spinner-arc"></div>
+            </div>
+            <div>
+                <div class="loading-text">Loading...</div>
+                <div class="loading-subtext">Fetching market data</div>
+            </div>
+        </div>
+
+        <!-- Index Selector -->
+        <div class="filter-chips">
+            <div class="filter-group">
+                <span class="filter-label">Index:</span>
+                {% for symbol, name in indices.items() %}
+                <a href="?symbol={{ symbol }}"
+                   class="filter-chip {% if current_symbol == symbol %}active{% endif %}"
+                   onclick="selectIndex('{{ symbol }}', '{{ name }}'); return false;">{{ name }}</a>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Date Range Picker -->
+        <div class="date-picker-container" style="background: var(--surface); border-radius: 12px; padding: 1rem 1.5rem; margin-top: 1rem; display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; justify-content: space-between;">
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+                <span style="color: var(--text-secondary); font-size: 0.875rem;">Range:</span>
+                <button onclick="setDateRange('1M')" class="range-btn" data-range="1M">1M</button>
+                <button onclick="setDateRange('3M')" class="range-btn" data-range="3M">3M</button>
+                <button onclick="setDateRange('6M')" class="range-btn" data-range="6M">6M</button>
+                <button onclick="setDateRange('1Y')" class="range-btn active" data-range="1Y">1Y</button>
+                <button onclick="setDateRange('2Y')" class="range-btn" data-range="2Y">2Y</button>
+                <button onclick="setDateRange('5Y')" class="range-btn" data-range="5Y">5Y</button>
+                <button onclick="setDateRange('ALL')" class="range-btn" data-range="ALL">All</button>
+            </div>
+            <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <label style="color: var(--text-secondary); font-size: 0.875rem;">From:</label>
+                    <input type="date" id="startDate" onchange="applyCustomRange()"
+                           style="background: var(--background); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 0.4rem 0.6rem; color: var(--text-primary); font-size: 0.875rem;">
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <label style="color: var(--text-secondary); font-size: 0.875rem;">To:</label>
+                    <input type="date" id="endDate" onchange="applyCustomRange()"
+                           style="background: var(--background); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 0.4rem 0.6rem; color: var(--text-primary); font-size: 0.875rem;">
+                </div>
+            </div>
+        </div>
+
+        <style>
+            .range-btn {
+                background: var(--background);
+                border: 1px solid rgba(255,255,255,0.1);
+                border-radius: 6px;
+                padding: 0.4rem 0.75rem;
+                color: var(--text-secondary);
+                font-size: 0.8rem;
+                cursor: pointer;
+                transition: all 0.2s;
+            }
+            .range-btn:hover {
+                background: rgba(99, 102, 241, 0.2);
+                border-color: rgba(99, 102, 241, 0.5);
+                color: var(--text-primary);
+            }
+            .range-btn.active {
+                background: rgba(99, 102, 241, 0.3);
+                border-color: rgb(99, 102, 241);
+                color: var(--text-primary);
+            }
+        </style>
+
+        <!-- Chart Container -->
+        <div class="chart-container" style="background: var(--surface); border-radius: 12px; padding: 1.5rem; margin-top: 1rem;">
+            <div class="chart-header" style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; flex-wrap: wrap; gap: 1rem;">
+                <div>
+                    <h3 id="chart-title" style="margin: 0; color: var(--text-primary);">{{ indices[current_symbol] }}</h3>
+                    <div id="drawdown-counts" style="display: flex; gap: 1rem; margin-top: 0.5rem; font-size: 0.875rem;">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+                <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 0.5rem;">
+                    <div class="chart-legend" style="display: flex; gap: 0.75rem; font-size: 0.8rem; flex-wrap: wrap;">
+                        <span style="display: flex; align-items: center; gap: 0.25rem;">
+                            <span style="width: 10px; height: 10px; background: var(--accent); border-radius: 2px;"></span>
+                            Price
+                        </span>
+                        <span style="display: flex; align-items: center; gap: 0.25rem;">
+                            <span style="width: 10px; height: 10px; background: #3b82f6; border-radius: 50%;"></span>
+                            0.5-2%
+                        </span>
+                        <span style="display: flex; align-items: center; gap: 0.25rem;">
+                            <span style="width: 10px; height: 10px; background: #f59e0b; border-radius: 50%;"></span>
+                            2-4%
+                        </span>
+                        <span style="display: flex; align-items: center; gap: 0.25rem;">
+                            <span style="width: 10px; height: 10px; background: #f97316; border-radius: 50%;"></span>
+                            4-5%
+                        </span>
+                        <span style="display: flex; align-items: center; gap: 0.25rem;">
+                            <span style="width: 10px; height: 10px; background: #dc2626; border-radius: 50%;"></span>
+                            &gt;5%
+                        </span>
+                    </div>
+                    <button onclick="resetZoom()" class="btn" style="padding: 0.25rem 0.75rem; font-size: 0.75rem;">Reset Zoom</button>
+                </div>
+            </div>
+            <div style="position: relative; height: 400px;">
+                <canvas id="priceChart"></canvas>
+            </div>
+            <p style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.5rem; text-align: center;">
+                Drag to pan | Scroll to zoom | Shift+drag to select range | Double-click to reset
+            </p>
+        </div>
+
+        <!-- Down Days Table -->
+        <div class="down-days-section" style="margin-top: 2rem;">
+            <h3 style="color: var(--text-primary); margin-bottom: 1rem;">Down Days (0.5%+ drop)</h3>
+            <div id="down-days-table" class="ticker-grid">
+                <!-- Populated by JS -->
+            </div>
+        </div>
+
+    </main>
+
+    <script>
+        let chart = null;
+        let allData = [];
+        let currentRange = '1Y';
+        const currentSymbol = '{{ current_symbol }}';
+        let activeSymbol = currentSymbol;
+        let activeName = '{{ indices[current_symbol] }}';
+
+        function getDateRange(range) {
+            const end = new Date();
+            let start = new Date();
+            switch(range) {
+                case '1M': start.setMonth(end.getMonth() - 1); break;
+                case '3M': start.setMonth(end.getMonth() - 3); break;
+                case '6M': start.setMonth(end.getMonth() - 6); break;
+                case '1Y': start.setFullYear(end.getFullYear() - 1); break;
+                case '2Y': start.setFullYear(end.getFullYear() - 2); break;
+                case '5Y': start.setFullYear(end.getFullYear() - 5); break;
+                case 'ALL': return { start: null, end: null };
+            }
+            return {
+                start: start.toISOString().split('T')[0],
+                end: end.toISOString().split('T')[0]
+            };
+        }
+
+        function setDateRange(range) {
+            currentRange = range;
+            document.querySelectorAll('.range-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelector(`.range-btn[data-range="${range}"]`).classList.add('active');
+
+            const { start, end } = getDateRange(range);
+            if (start) {
+                document.getElementById('startDate').value = start;
+                document.getElementById('endDate').value = end;
+            } else {
+                document.getElementById('startDate').value = '';
+                document.getElementById('endDate').value = '';
+            }
+            loadChart(activeSymbol, activeName, start, end);
+        }
+
+        function applyCustomRange() {
+            document.querySelectorAll('.range-btn').forEach(btn => btn.classList.remove('active'));
+            const start = document.getElementById('startDate').value || null;
+            const end = document.getElementById('endDate').value || null;
+            loadChart(activeSymbol, activeName, start, end);
+        }
+
+        function selectIndex(symbol, name) {
+            activeSymbol = symbol;
+            activeName = name;
+            document.querySelectorAll('.filter-chips .filter-chip').forEach(el => el.classList.remove('active'));
+            if (event && event.target) {
+                event.target.classList.add('active');
+            }
+            const start = document.getElementById('startDate').value || null;
+            const end = document.getElementById('endDate').value || null;
+            loadChart(symbol, name, start, end);
+        }
+
+        function getDropColor(pctChange) {
+            if (pctChange <= -5) return '#dc2626';  // Red >5%
+            if (pctChange <= -4) return '#f97316';  // Orange 4-5%
+            if (pctChange <= -2) return '#f59e0b';  // Yellow/Amber 2-4%
+            if (pctChange <= -0.5) return '#3b82f6';  // Blue 0.5-2%
+            return 'transparent';
+        }
+
+        function getDropCategory(pctChange) {
+            if (pctChange <= -5) return 'severe';
+            if (pctChange <= -4) return 'major';
+            if (pctChange <= -2) return 'moderate';
+            if (pctChange <= -0.5) return 'minor';
+            return 'none';
+        }
+
+        function resetZoom() {
+            if (chart) {
+                chart.resetZoom();
+            }
+        }
+
+        async function loadChart(symbol, name, startDate = null, endDate = null) {
+            document.getElementById('chart-title').textContent = name || symbol;
+
+            // Build URL with optional date params
+            let url = `/api/markets/${encodeURIComponent(symbol)}`;
+            const params = [];
+            if (startDate) params.push(`start=${startDate}`);
+            if (endDate) params.push(`end=${endDate}`);
+            if (params.length) url += '?' + params.join('&');
+
+            // Fetch data
+            const response = await fetch(url);
+            const data = await response.json();
+
+            if (data.length === 0) {
+                document.getElementById('priceChart').parentElement.innerHTML =
+                    '<div style="text-align: center; padding: 3rem; color: var(--text-secondary);">No data available. Click "Refresh Data" to fetch.</div>';
+                document.getElementById('drawdown-counts').innerHTML = '';
+                return;
+            }
+
+            // Count drawdowns by category
+            const counts = { minor: 0, moderate: 0, major: 0, severe: 0 };
+            data.forEach(d => {
+                if (d.pct_change && d.pct_change <= -0.5 && d.pct_change > -2) counts.minor++;
+                else if (d.pct_change && d.pct_change <= -2 && d.pct_change > -4) counts.moderate++;
+                else if (d.pct_change && d.pct_change <= -4 && d.pct_change > -5) counts.major++;
+                else if (d.pct_change && d.pct_change <= -5) counts.severe++;
+            });
+
+            // Update drawdown counts
+            document.getElementById('drawdown-counts').innerHTML = `
+                <span style="display: flex; align-items: center; gap: 0.25rem; background: rgba(59, 130, 246, 0.2); padding: 0.25rem 0.5rem; border-radius: 4px;">
+                    <span style="color: #3b82f6; font-weight: 600;">${counts.minor}</span>
+                    <span style="color: var(--text-secondary);">days 0.5-2%</span>
+                </span>
+                <span style="display: flex; align-items: center; gap: 0.25rem; background: rgba(245, 158, 11, 0.2); padding: 0.25rem 0.5rem; border-radius: 4px;">
+                    <span style="color: #f59e0b; font-weight: 600;">${counts.moderate}</span>
+                    <span style="color: var(--text-secondary);">days 2-4%</span>
+                </span>
+                <span style="display: flex; align-items: center; gap: 0.25rem; background: rgba(249, 115, 22, 0.2); padding: 0.25rem 0.5rem; border-radius: 4px;">
+                    <span style="color: #f97316; font-weight: 600;">${counts.major}</span>
+                    <span style="color: var(--text-secondary);">days 4-5%</span>
+                </span>
+                <span style="display: flex; align-items: center; gap: 0.25rem; background: rgba(220, 38, 38, 0.2); padding: 0.25rem 0.5rem; border-radius: 4px;">
+                    <span style="color: #dc2626; font-weight: 600;">${counts.severe}</span>
+                    <span style="color: var(--text-secondary);">days &gt;5%</span>
+                </span>
+            `;
+
+            // Prepare chart data
+            const labels = data.map(d => d.date);
+            const prices = data.map(d => d.close);
+            const pointColors = data.map(d => getDropColor(d.pct_change));
+            const pointRadius = data.map(d => {
+                if (d.pct_change <= -5) return 8;
+                if (d.pct_change <= -4) return 7;
+                if (d.pct_change <= -2) return 6;
+                if (d.pct_change <= -0.5) return 4;
+                return 0;
+            });
+
+            // Destroy existing chart
+            if (chart) {
+                chart.destroy();
+            }
+
+            // Create new chart
+            const ctx = document.getElementById('priceChart').getContext('2d');
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Close Price',
+                        data: prices,
+                        borderColor: 'rgb(99, 102, 241)',
+                        backgroundColor: 'rgba(99, 102, 241, 0.1)',
+                        borderWidth: 1.5,
+                        fill: true,
+                        tension: 0.1,
+                        pointBackgroundColor: pointColors,
+                        pointBorderColor: pointColors,
+                        pointRadius: pointRadius,
+                        pointHoverRadius: 10
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        intersect: false,
+                        mode: 'index'
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const idx = context.dataIndex;
+                                    const d = data[idx];
+                                    let label = `Close: $${d.close?.toLocaleString() || 'N/A'}`;
+                                    if (d.pct_change) {
+                                        label += ` (${d.pct_change > 0 ? '+' : ''}${d.pct_change.toFixed(2)}%)`;
+                                    }
+                                    return label;
+                                },
+                                afterLabel: function(context) {
+                                    const idx = context.dataIndex;
+                                    const d = data[idx];
+                                    if (d.pct_change <= -5) return 'SEVERE DROP (>5%)';
+                                    if (d.pct_change <= -4) return 'MAJOR DROP (4-5%)';
+                                    if (d.pct_change <= -2) return 'MODERATE DROP (2-4%)';
+                                    if (d.pct_change <= -0.5) return 'MINOR DROP (0.5-2%)';
+                                    return '';
+                                }
+                            }
+                        },
+                        zoom: {
+                            pan: {
+                                enabled: true,
+                                mode: 'x',
+                                modifierKey: null
+                            },
+                            zoom: {
+                                wheel: {
+                                    enabled: true
+                                },
+                                pinch: {
+                                    enabled: true
+                                },
+                                drag: {
+                                    enabled: true,
+                                    backgroundColor: 'rgba(99, 102, 241, 0.25)',
+                                    borderColor: 'rgba(99, 102, 241, 0.8)',
+                                    borderWidth: 1,
+                                    modifierKey: 'shift'
+                                },
+                                mode: 'x'
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            display: true,
+                            grid: {
+                                color: 'rgba(255,255,255,0.05)'
+                            },
+                            ticks: {
+                                color: 'rgba(255,255,255,0.5)',
+                                maxTicksLimit: 12
+                            }
+                        },
+                        y: {
+                            display: true,
+                            grid: {
+                                color: 'rgba(255,255,255,0.05)'
+                            },
+                            ticks: {
+                                color: 'rgba(255,255,255,0.5)',
+                                callback: function(value) {
+                                    return '$' + value.toLocaleString();
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Update down days table
+            const downDays = data.filter(d => d.pct_change && d.pct_change <= -0.5).reverse().slice(0, 50);
+            const tableHtml = downDays.length > 0 ? downDays.map(d => {
+                const category = getDropCategory(d.pct_change);
+                const bgColor = category === 'severe' ? 'rgba(220, 38, 38, 0.15)' :
+                               category === 'major' ? 'rgba(249, 115, 22, 0.15)' :
+                               category === 'moderate' ? 'rgba(245, 158, 11, 0.15)' : 'rgba(59, 130, 246, 0.15)';
+                const textColor = category === 'severe' ? '#dc2626' :
+                                 category === 'major' ? '#f97316' :
+                                 category === 'moderate' ? '#f59e0b' : '#3b82f6';
+                const label = category === 'severe' ? '>5%' : category === 'major' ? '4-5%' : category === 'moderate' ? '2-4%' : '0.5-2%';
+                return `
+                <div class="ticker-card" style="padding: 1rem; background: ${bgColor}; border-left: 3px solid ${textColor};">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-weight: 600;">${d.date}</span>
+                        <span style="color: ${textColor}; font-weight: 700;">${d.pct_change.toFixed(2)}%</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem;">
+                        <span style="font-size: 0.875rem; color: var(--text-secondary);">
+                            Close: $${d.close?.toLocaleString() || 'N/A'}
+                        </span>
+                        <span style="font-size: 0.75rem; padding: 0.125rem 0.375rem; background: ${textColor}; color: white; border-radius: 4px;">
+                            ${label}
+                        </span>
+                    </div>
+                </div>
+            `}).join('') : '<div style="color: var(--text-secondary); padding: 1rem;">No significant drops found in the data.</div>';
+
+            document.getElementById('down-days-table').innerHTML = tableHtml;
+
+            // Update URL without reload
+            history.pushState({}, '', `?symbol=${encodeURIComponent(symbol)}`);
+            activeSymbol = symbol;
+            activeName = name;
+        }
+
+        // Load initial chart with 1Y default
+        document.addEventListener('DOMContentLoaded', () => {
+            setDateRange('1Y');
+        });
+    </script>
+
+</body>
+</html>

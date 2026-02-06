@@ -1,0 +1,33 @@
+<nav class="nav">
+    <div class="container nav-inner">
+        <div class="nav-brand">
+            <div class="status-dot"></div>
+            <h1>NEWS<span class="highlight">INTEL</span></h1>
+        </div>
+        <div class="nav-controls">
+            {% if refresh_indicator %}
+            <div class="auto-refresh-indicator">
+                <span class="refresh-dot"></span>
+                Auto-refresh: {{ refresh_interval }}s
+            </div>
+            {% endif %}
+            <div class="nav-badge">
+                <span class="dot"></span>
+                AI Model Active
+            </div>
+        </div>
+    </div>
+</nav>
+
+<main class="container" style="padding-top: 2rem;">
+    <div id="main-tabs" class="tabs">
+        <a href="/" class="tab {% if active_tab == 'news' %}active{% endif %}">All News</a>
+        <a href="/saved" class="tab {% if active_tab == 'saved' %}active active-saved{% endif %}">Saved</a>
+        <a href="/tickers" class="tab {% if active_tab == 'tickers' %}active{% endif %}">Tickers</a>
+        <a href="/markets" class="tab {% if active_tab == 'markets' %}active{% endif %}">Markets</a>
+        <a href="/signals" class="tab {% if active_tab == 'signals' %}active{% endif %}">Signals</a>
+        <a href="/recommendation" class="tab {% if active_tab == 'recommendation' %}active{% endif %}">Buy/Sell?</a>
+        <a href="/market-sentiment" class="tab {% if active_tab == 'mood' %}active{% endif %}">Market Mood</a>
+        <a href="/economy" class="tab {% if active_tab == 'economy' %}active{% endif %}">Economy</a>
+        <a href="/backtest" class="tab {% if active_tab == 'backtest' %}active{% endif %}">Backtest</a>
+    </div>

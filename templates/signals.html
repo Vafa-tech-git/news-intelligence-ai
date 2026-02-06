@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trading Signals - News Intelligence AI</title>
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="{{ url_for('static', filename='js/htmx.min.js') }}"></script>
+    <style>
+        .signal-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1rem; }
+        .signal-card { background: var(--card-bg); border-radius: 12px; padding: 1.25rem; border: 1px solid var(--border-color); }
+        .signal-card.strong_buy { border-left: 4px solid #10b981; }
+        .signal-card.buy { border-left: 4px solid #34d399; }
+        .signal-card.sell { border-left: 4px solid #f87171; }
+        .signal-card.strong_sell { border-left: 4px solid #ef4444; }
+        .signal-card.hold { border-left: 4px solid #6b7280; }
+
+        .signal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+        .signal-ticker { font-size: 1.5rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+        .signal-badge { padding: 0.375rem 0.75rem; border-radius: 6px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; }
+        .signal-badge.strong_buy { background: rgba(16, 185, 129, 0.2); color: #10b981; }
+        .signal-badge.buy { background: rgba(52, 211, 153, 0.2); color: #34d399; }
+        .signal-badge.sell { background: rgba(248, 113, 113, 0.2); color: #f87171; }
+        .signal-badge.strong_sell { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+        .signal-badge.hold { background: rgba(107, 114, 128, 0.2); color: #9ca3af; }
+
+        .confidence-meter { height: 8px; background: var(--border-color); border-radius: 4px; margin: 0.75rem 0; overflow: hidden; }
+        .confidence-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
+        .confidence-fill.high { background: linear-gradient(90deg, #10b981, #34d399); }
+        .confidence-fill.medium { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+        .confidence-fill.low { background: linear-gradient(90deg, #6b7280, #9ca3af); }
+
+        .timing-score { display: flex; align-items: center; gap: 0.5rem; margin: 0.75rem 0; }
+        .timing-gauge { display: flex; gap: 2px; }
+        .timing-bar { width: 8px; height: 20px; background: var(--border-color); border-radius: 2px; }
+        .timing-bar.active { background: #10b981; }
+        .timing-bar.active.warning { background: #f59e0b; }
+        .timing-bar.active.danger { background: #ef4444; }
+
+        .reason-chips { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
+        .reason-chip { background: rgba(59, 130, 246, 0.15); color: var(--accent); padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; }
+        .risk-chip { background: rgba(239, 68, 68, 0.15); color: #f87171; }
+
+        .market-context-bar { background: var(--card-bg); border-radius: 12px; padding: 1rem 1.5rem; margin-bottom: 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; border: 1px solid var(--border-color); }
+        .context-item { text-align: center; }
+        .context-label { font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase; }
+        .context-value { font-size: 1.25rem; font-weight: 600; }
+        .context-value.fear { color: #ef4444; }
+        .context-value.greed { color: #10b981; }
+        .context-value.neutral { color: #6b7280; }
+
+        .mood-gauge { width: 120px; height: 60px; position: relative; }
+        .mood-arc { fill: none; stroke-width: 8; stroke-linecap: round; }
+        .mood-arc.bg { stroke: var(--border-color); }
+        .mood-arc.fg { transition: stroke-dashoffset 0.5s; }
+
+        .filter-tabs { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+        .filter-tab { padding: 0.5rem 1rem; border-radius: 8px; background: var(--card-bg); border: 1px solid var(--border-color); color: var(--text-secondary); text-decoration: none; font-size: 0.875rem; transition: all 0.2s; }
+        .filter-tab:hover { border-color: var(--accent); color: var(--text-primary); }
+        .filter-tab.active { background: var(--accent); border-color: var(--accent); color: white; }
+
+        .empty-signals { text-align: center; padding: 3rem; color: var(--text-secondary); }
+        .empty-signals svg { width: 64px; height: 64px; margin-bottom: 1rem; opacity: 0.5; }
+    </style>
+</head>
+<body>
+
+    {% set active_tab = 'signals' %}
+    {% include 'components/nav.html' %}
+
+        <div class="dashboard-header">
+            <div>
+                <h2 class="dashboard-title">Trading Signals</h2>
+                <p class="dashboard-subtitle">AI-powered buy/sell recommendations based on multi-source sentiment</p>
+            </div>
+        </div>
+
+        {% if market_context %}
+        <div class="market-context-bar">
+            <div class="context-item">
+                <div class="context-label">Market Mood</div>
+                <div class="context-value {% if market_context.mood_score <= 35 %}fear{% elif market_context.mood_score >= 65 %}greed{% else %}neutral{% endif %}">
+                    {{ market_context.mood_score|round|int }}/100
+                </div>
+                <div class="context-label">{{ mood_label }}</div>
+            </div>
+            <div class="context-item">
+                <div class="context-label">Regime</div>
+                <div class="context-value">{{ regime_label }}</div>
+            </div>
+            <div class="context-item">
+                <div class="context-label">Volatility</div>
+                <div class="context-value">{{ market_context.volatility_level|round(1) if market_context.volatility_level else 'N/A' }}</div>
+            </div>
+            <div class="context-item">
+                <div class="context-label">Bullish Ratio</div>
+                <div class="context-value">{{ (market_context.bullish_ratio * 100)|round|int if market_context.bullish_ratio else 50 }}%</div>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="filter-tabs">
+            <a href="/signals" class="filter-tab {% if not current_signal %}active{% endif %}">All Signals</a>
+            <a href="/signals?signal=strong_buy" class="filter-tab {% if current_signal == 'strong_buy' %}active{% endif %}">Strong Buy</a>
+            <a href="/signals?signal=buy" class="filter-tab {% if current_signal == 'buy' %}active{% endif %}">Buy</a>
+            <a href="/signals?signal=sell" class="filter-tab {% if current_signal == 'sell' %}active{% endif %}">Sell</a>
+            <a href="/signals?signal=strong_sell" class="filter-tab {% if current_signal == 'strong_sell' %}active{% endif %}">Strong Sell</a>
+        </div>
+
+        {% if signals %}
+        <div class="signal-grid">
+            {% for signal in signals %}
+            <div class="signal-card {{ signal.signal or 'hold' }}">
+                <div class="signal-header">
+                    <span class="signal-ticker">{{ signal.ticker }}</span>
+                    <span class="signal-badge {{ signal.signal or 'hold' }}">
+                        {{ (signal.signal or 'hold')|replace('_', ' ') }}
+                    </span>
+                </div>
+
+                <div style="display: flex; justify-content: space-between; font-size: 0.875rem; color: var(--text-secondary);">
+                    <span>Confidence</span>
+                    <span>{{ (signal.signal_confidence * 100)|round|int if signal.signal_confidence else 0 }}%</span>
+                </div>
+                <div class="confidence-meter">
+                    <div class="confidence-fill {% if signal.signal_confidence and signal.signal_confidence >= 0.7 %}high{% elif signal.signal_confidence and signal.signal_confidence >= 0.5 %}medium{% else %}low{% endif %}"
+                         style="width: {{ (signal.signal_confidence * 100)|round|int if signal.signal_confidence else 0 }}%"></div>
+                </div>
+
+                <div class="timing-score">
+                    <span style="font-size: 0.875rem; color: var(--text-secondary);">Timing:</span>
+                    <div class="timing-gauge">
+                        {% for i in range(10) %}
+                        <div class="timing-bar {% if signal.timing_score and i < signal.timing_score|int %}active{% endif %} {% if signal.timing_score and signal.timing_score < 4 %}danger{% elif signal.timing_score and signal.timing_score < 7 %}warning{% endif %}"></div>
+                        {% endfor %}
+                    </div>
+                    <span style="font-size: 0.875rem; font-weight: 600;">{{ signal.timing_score|round(1) if signal.timing_score else 'N/A' }}/10</span>
+                </div>
+
+                <div style="font-size: 0.875rem; margin-top: 0.5rem;">
+                    <span style="color: var(--text-secondary);">Sentiment:</span>
+                    <span style="font-weight: 600;">{{ signal.composite_direction|replace('_', ' ')|title if signal.composite_direction else 'Unknown' }}</span>
+                    <span style="color: var(--text-secondary);">({{ (signal.composite_score * 100)|round|int if signal.composite_score else 0 }}%)</span>
+                </div>
+
+                {% if signal.signal_reasons %}
+                <div class="reason-chips">
+                    {% for reason in signal.signal_reasons[:3] %}
+                    <span class="reason-chip">{{ reason }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                {% if signal.risk_factors %}
+                <div class="reason-chips" style="margin-top: 0.5rem;">
+                    {% for risk in signal.risk_factors[:2] %}
+                    <span class="reason-chip risk-chip">{{ risk }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-signals">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+            </svg>
+            <h3>No signals available</h3>
+            <p>Signals are generated from sentiment analysis. Scan news and fetch sentiment data to generate signals.</p>
+        </div>
+        {% endif %}
+
+    </main>
+
+</body>
+</html>
